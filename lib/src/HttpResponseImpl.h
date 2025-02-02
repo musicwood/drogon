@@ -133,16 +133,14 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
         removeHeaderBy(key);
     }
 
-    const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &headers() const override
+    const SafeStringMap<std::string> &headers() const override
     {
         return headers_;
     }
 
     const std::string &getHeaderBy(const std::string &lowerKey) const
     {
-        const static std::string defaultVal;
+        static const std::string defaultVal;
         auto iter = headers_.find(lowerKey);
         if (iter == headers_.end())
         {
@@ -205,9 +203,7 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
         return defaultCookie;
     }
 
-    const std::
-        unordered_map<std::string, Cookie, utils::internal::SafeStringHash>
-            &cookies() const override
+    const SafeStringMap<Cookie> &cookies() const override
     {
         return cookies_;
     }
@@ -297,7 +293,7 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
 
     const std::string &getJsonError() const override
     {
-        const static std::string none;
+        static const std::string none;
         if (jsonParsingErrorPtr_)
             return *jsonParsingErrorPtr_;
         return none;
@@ -363,6 +359,25 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
         streamCallback_ = callback;
     }
 
+    const std::function<void(ResponseStreamPtr)> &asyncStreamCallback()
+        const override
+    {
+        return asyncStreamCallback_;
+    }
+
+    void setAsyncStreamCallback(
+        const std::function<void(ResponseStreamPtr)> &callback,
+        bool disableKickoffTimeout)
+    {
+        asyncStreamCallback_ = callback;
+        asyncStreamDisableKickoff_ = disableKickoffTimeout;
+    }
+
+    bool asyncStreamKickoffDisabled() const
+    {
+        return asyncStreamDisableKickoff_;
+    }
+
     void makeHeaderString()
     {
         fullHeaderString_ = std::make_shared<trantor::MsgBuffer>(128);
@@ -383,9 +398,19 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
                 utils::gzipDecompress(bodyPtr_->data(), bodyPtr_->length());
             removeHeaderBy("content-encoding");
             bodyPtr_ =
-                std::make_shared<HttpMessageStringBody>(move(gunzipBody));
+                std::make_shared<HttpMessageStringBody>(std::move(gunzipBody));
             addHeader("content-length", std::to_string(bodyPtr_->length()));
         }
+    }
+
+    bool contentLengthIsAllowed() const
+    {
+        int statusCode =
+            customStatusCode_ >= 0 ? customStatusCode_ : statusCode_;
+
+        // return false if status code is 1xx or 204
+        return (statusCode >= k200OK || statusCode < k100Continue) &&
+               statusCode != k204NoContent;
     }
 #ifdef USE_BROTLI
     void brDecompress()
@@ -396,7 +421,7 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
                 utils::brotliDecompress(bodyPtr_->data(), bodyPtr_->length());
             removeHeaderBy("content-encoding");
             bodyPtr_ =
-                std::make_shared<HttpMessageStringBody>(move(gunzipBody));
+                std::make_shared<HttpMessageStringBody>(std::move(gunzipBody));
             addHeader("content-length", std::to_string(bodyPtr_->length()));
         }
     }
@@ -479,11 +504,8 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
         statusMessage_ = std::string_view{message, messageLength};
     }
 
-    std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            headers_;
-    std::unordered_map<std::string, Cookie, utils::internal::SafeStringHash>
-        cookies_;
+    SafeStringMap<std::string> headers_;
+    SafeStringMap<Cookie> cookies_;
 
     int customStatusCode_{-1};
     HttpStatusCode statusCode_{kUnknown};
@@ -497,6 +519,8 @@ class DROGON_EXPORT HttpResponseImpl : public HttpResponse
     std::string sendfileName_;
     SendfileRange sendfileRange_{0, 0};
     std::function<std::size_t(char *, std::size_t)> streamCallback_;
+    std::function<void(ResponseStreamPtr)> asyncStreamCallback_;
+    bool asyncStreamDisableKickoff_{false};
 
     mutable std::shared_ptr<Json::Value> jsonPtr_;
 

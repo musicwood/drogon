@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.5...3.31)
 
 project(drogon)
 
@@ -13,6 +13,7 @@ option(BUILD_DOC "Build Doxygen documentation" OFF)
 option(BUILD_BROTLI "Build Brotli" ON)
 option(BUILD_YAML_CONFIG "Build yaml config" ON)
 option(USE_SUBMODULE "Use trantor as a submodule" ON)
+option(USE_STATIC_LIBS_ONLY "Use only static libraries as dependencies" OFF)
 
 include(CMakeDependentOption)
 CMAKE_DEPENDENT_OPTION(BUILD_POSTGRESQL "Build with postgresql support" ON "BUILD_ORM" OFF)
@@ -20,13 +21,14 @@ CMAKE_DEPENDENT_OPTION(LIBPQ_BATCH_MODE "Use batch mode for libpq" ON "BUILD_POS
 CMAKE_DEPENDENT_OPTION(BUILD_MYSQL "Build with mysql support" ON "BUILD_ORM" OFF)
 CMAKE_DEPENDENT_OPTION(BUILD_SQLITE "Build with sqlite3 support" ON "BUILD_ORM" OFF)
 CMAKE_DEPENDENT_OPTION(BUILD_REDIS "Build with redis support" ON "BUILD_ORM" OFF)
+CMAKE_DEPENDENT_OPTION(USE_SPDLOG "Allow using the spdlog logging library" OFF "USE_SUBMODULE" OFF)
 
 set(DROGON_MAJOR_VERSION 1)
 set(DROGON_MINOR_VERSION 9)
-set(DROGON_PATCH_VERSION 0)
+set(DROGON_PATCH_VERSION 9)
 set(DROGON_VERSION
     ${DROGON_MAJOR_VERSION}.${DROGON_MINOR_VERSION}.${DROGON_PATCH_VERSION})
-set(DROGON_VERSION_STRING "${DROGON_VERSION}-rc.1")
+set(DROGON_VERSION_STRING "${DROGON_VERSION}")
 
 include(GNUInstallDirs)
 # Offer the user the choice of overriding the installation directories
@@ -38,11 +40,17 @@ set(INSTALL_DROGON_CMAKE_DIR ${DEF_INSTALL_DROGON_CMAKE_DIR}
     CACHE PATH "Installation directory for cmake files")
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    # Force MSVC to use UTF-8 because that's what we use. Otherwise it uses
-    # the default of whatever Windows sets and causes encoding issues.
-    message(STATUS "You are using MSVC. Forceing to use UTF-8")
-    add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
-    add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+  # Force MSVC to use UTF-8 because that's what we use. Otherwise it uses
+  # the default of whatever Windows sets and causes encoding issues.
+  message(STATUS "You are using MSVC. Forceing to use UTF-8")
+  add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+  add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+  if (MSVC_VERSION GREATER_EQUAL 1914)
+    # Tells Visual Studio 2017 (15.7+) and newer to correctly set the value of the standard __cplusplus macro,
+    # instead of leaving it to 199711L and settings the effective c++ version in _MSVC_LANG
+    # Dropping support for older versions of VS would allow to only rely on __cplusplus
+    add_compile_options("/Zc:__cplusplus")
+  endif()
 endif ()
 
 add_library(${PROJECT_NAME})
@@ -59,7 +67,7 @@ if (BUILD_SHARED_LIBS)
         SOVERSION ${DROGON_MAJOR_VERSION})
     target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads)
     if (WIN32)
-        target_link_libraries(${PROJECT_NAME} PUBLIC Rpcrt4 ws2_32 crypt32 Advapi32)
+        target_link_libraries(${PROJECT_NAME} PUBLIC rpcrt4 crypt32 advapi32 ws2_32)
         if (CMAKE_CXX_COMPILER_ID MATCHES MSVC)
             # Ignore MSVC C4251 and C4275 warning of exporting std objects with no dll export
             # We export class to facilitate maintenance, thus if you compile
@@ -69,6 +77,19 @@ if (BUILD_SHARED_LIBS)
         endif ()
     endif ()
 endif (BUILD_SHARED_LIBS)
+
+if(USE_STATIC_LIBS_ONLY)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif(USE_STATIC_LIBS_ONLY)
+
+if(USE_SPDLOG)
+  find_package(spdlog CONFIG)
+  if(spdlog_FOUND)
+    message(STATUS "spdlog found!")
+    target_link_libraries(${PROJECT_NAME} PUBLIC spdlog::spdlog_header_only)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC DROGON_SPDLOG_SUPPORT SPDLOG_FMT_EXTERNAL FMT_HEADER_ONLY)
+  endif(spdlog_FOUND)
+endif(USE_SPDLOG)
 
 if (NOT ${CMAKE_PLATFORM_NAME} STREQUAL "Windows" AND CMAKE_CXX_COMPILER_ID MATCHES GNU)
     target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Werror)
@@ -125,7 +146,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Haiku")
 elseif (NOT WIN32 AND NOT ${CMAKE_SYSTEM_NAME} STREQUAL "OpenBSD")
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)
 elseif (WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE shlwapi)
+    target_link_libraries(${PROJECT_NAME} PRIVATE shlwapi ws2_32 iphlpapi)
 endif ()
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules/)
@@ -237,7 +258,7 @@ set(DROGON_SOURCES
     lib/src/Cookie.cc
     lib/src/DrClassMap.cc
     lib/src/DrTemplateBase.cc
-    lib/src/FiltersFunction.cc
+    lib/src/MiddlewaresFunction.cc
     lib/src/FixedWindowRateLimiter.cc
     lib/src/GlobalFilters.cc
     lib/src/Histogram.cc
@@ -245,15 +266,17 @@ set(DROGON_SOURCES
     lib/src/HttpAppFrameworkImpl.cc
     lib/src/HttpBinder.cc
     lib/src/HttpClientImpl.cc
+    lib/src/HttpConnectionLimit.cc
+    lib/src/HttpControllerBinder.cc
     lib/src/HttpControllersRouter.cc
     lib/src/HttpFileImpl.cc
     lib/src/HttpFileUploadRequest.cc
     lib/src/HttpRequestImpl.cc
     lib/src/HttpRequestParser.cc
+    lib/src/RequestStream.cc
     lib/src/HttpResponseImpl.cc
     lib/src/HttpResponseParser.cc
     lib/src/HttpServer.cc
-    lib/src/HttpSimpleControllersRouter.cc
     lib/src/HttpUtils.cc
     lib/src/HttpViewData.cc
     lib/src/IntranetIpFilter.cc
@@ -261,6 +284,7 @@ set(DROGON_SOURCES
     lib/src/ListenerManager.cc
     lib/src/LocalHostFilter.cc
     lib/src/MultiPart.cc
+    lib/src/MultipartStreamParser.cc
     lib/src/NotFound.cc
     lib/src/PluginsManager.cc
     lib/src/PromExporter.cc
@@ -278,16 +302,18 @@ set(DROGON_SOURCES
     lib/src/Utilities.cc
     lib/src/WebSocketClientImpl.cc
     lib/src/WebSocketConnectionImpl.cc
-    lib/src/WebsocketControllersRouter.cc
     lib/src/YamlConfigAdapter.cc
     lib/src/drogon_test.cc)
 set(private_headers
     lib/src/AOPAdvice.h
     lib/src/CacheFile.h
     lib/src/ConfigLoader.h
-    lib/src/FiltersFunction.h
+    lib/src/ControllerBinderBase.h
+    lib/src/MiddlewaresFunction.h
     lib/src/HttpAppFrameworkImpl.h
     lib/src/HttpClientImpl.h
+    lib/src/HttpConnectionLimit.h
+    lib/src/HttpControllerBinder.h
     lib/src/HttpControllersRouter.h
     lib/src/HttpFileImpl.h
     lib/src/HttpFileUploadRequest.h
@@ -297,7 +323,6 @@ set(private_headers
     lib/src/HttpResponseImpl.h
     lib/src/HttpResponseParser.h
     lib/src/HttpServer.h
-    lib/src/HttpSimpleControllersRouter.h
     lib/src/HttpUtils.h
     lib/src/impl_forwards.h
     lib/src/ListenerManager.h
@@ -308,14 +333,14 @@ set(private_headers
     lib/src/TaskTimeoutFlag.h
     lib/src/WebSocketClientImpl.h
     lib/src/WebSocketConnectionImpl.h
-    lib/src/WebsocketControllersRouter.h
     lib/src/FixedWindowRateLimiter.h
     lib/src/SlidingWindowRateLimiter.h
     lib/src/TokenBucketRateLimiter.h
     lib/src/ConfigAdapterManager.h
     lib/src/JsonConfigAdapter.h
     lib/src/YamlConfigAdapter.h
-    lib/src/ConfigAdapter.h)
+    lib/src/ConfigAdapter.h
+    lib/src/MultipartStreamParser.h)
 
 if (NOT WIN32)
     set(DROGON_SOURCES
@@ -540,7 +565,9 @@ set(DROGON_HEADERS
     lib/inc/drogon/HttpClient.h
     lib/inc/drogon/HttpController.h
     lib/inc/drogon/HttpFilter.h
+    lib/inc/drogon/HttpMiddleware.h
     lib/inc/drogon/HttpRequest.h
+    lib/inc/drogon/RequestStream.h
     lib/inc/drogon/HttpResponse.h
     lib/inc/drogon/HttpSimpleController.h
     lib/inc/drogon/HttpTypes.h
@@ -665,6 +692,7 @@ set(ORM_HEADERS
     orm_lib/inc/drogon/orm/BaseBuilder.h
     orm_lib/inc/drogon/orm/Criteria.h
     orm_lib/inc/drogon/orm/DbClient.h
+    orm_lib/inc/drogon/orm/DbConfig.h
     orm_lib/inc/drogon/orm/DbListener.h
     orm_lib/inc/drogon/orm/DbTypes.h
     orm_lib/inc/drogon/orm/Exception.h

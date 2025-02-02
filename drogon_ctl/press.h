@@ -20,6 +20,7 @@
 #include <drogon/HttpClient.h>
 #include <trantor/utils/Date.h>
 #include <trantor/net/EventLoopThreadPool.h>
+#include <functional>
 #include <string>
 #include <atomic>
 #include <memory>
@@ -62,7 +63,9 @@ class press : public DrObject<press>, public CommandHandler
     size_t numOfThreads_{1};
     size_t numOfRequests_{1};
     size_t numOfConnections_{1};
-    // bool keepAlive_ = false;
+    std::string httpRequestJsonFile_;
+    std::function<HttpRequestPtr()> createHttpRequestFunc_;
+    bool certValidation_{true};
     bool processIndication_{true};
     std::string url_;
     std::string host_;

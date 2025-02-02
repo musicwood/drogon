@@ -28,6 +28,8 @@
     static void initPathRouting() \
     {
 #define WS_PATH_ADD(path, ...) registerSelf__(path, {__VA_ARGS__})
+#define WS_ADD_PATH_VIA_REGEX(regExp, ...) \
+    registerSelfRegex__(regExp, {__VA_ARGS__})
 #define WS_PATH_LIST_END }
 
 namespace drogon
@@ -83,7 +85,7 @@ class WebSocketController : public DrObject<T>, public WebSocketControllerBase
 
     static void registerSelf__(
         const std::string &path,
-        const std::vector<internal::HttpConstraint> &filtersAndMethods)
+        const std::vector<internal::HttpConstraint> &constraints)
     {
         LOG_TRACE << "register websocket controller("
                   << WebSocketController<T, AutoCreation>::classTypeName()
@@ -91,7 +93,20 @@ class WebSocketController : public DrObject<T>, public WebSocketControllerBase
         app().registerWebSocketController(
             path,
             WebSocketController<T, AutoCreation>::classTypeName(),
-            filtersAndMethods);
+            constraints);
+    }
+
+    static void registerSelfRegex__(
+        const std::string &regExp,
+        const std::vector<internal::HttpConstraint> &constraints)
+    {
+        LOG_TRACE << "register websocket controller("
+                  << WebSocketController<T, AutoCreation>::classTypeName()
+                  << ") on regExp:" << regExp;
+        app().registerWebSocketControllerRegex(
+            regExp,
+            WebSocketController<T, AutoCreation>::classTypeName(),
+            constraints);
     }
 
   private:

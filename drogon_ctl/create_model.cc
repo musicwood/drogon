@@ -66,6 +66,17 @@ static std::string escapeConnString(const std::string &str)
     return escaped;
 }
 
+std::string drogon_ctl::escapeIdentifier(const std::string &identifier,
+                                         const std::string &rdbms)
+{
+    if (rdbms != "postgresql")
+    {
+        return identifier;
+    }
+
+    return "\\\"" + identifier + "\\\"";
+}
+
 static std::map<std::string, std::vector<ConvertMethod>> getConvertMethods(
     const Json::Value &convertColumns)
 {
@@ -166,7 +177,7 @@ void create_model::createModelClassFromPG(
     auto className = nameTransform(tableName, true);
     HttpViewData data;
     data["className"] = className;
-    data["tableName"] = toLower(tableName);
+    data["tableName"] = tableName;
     data["hasPrimaryKey"] = (int)0;
     data["primaryKeyName"] = "";
     data["dbName"] = dbname_;
@@ -178,10 +189,10 @@ void create_model::createModelClassFromPG(
         data["schema"] = schema;
     }
     std::vector<ColumnInfo> cols;
-    *client << "SELECT * \
-                FROM information_schema.columns \
-                WHERE table_schema = $1 \
-                AND table_name   = $2"
+    *client << "SELECT * "
+               "FROM information_schema.columns "
+               "WHERE table_schema = $1 "
+               "AND table_name   = $2"
             << schema << tableName << Mode::Blocking >>
         [&](const Result &r) {
             if (r.size() == 0)
@@ -284,14 +295,14 @@ void create_model::createModelClassFromPG(
             exit(1);
         };
     size_t pkNumber = 0;
-    *client << "SELECT \
-                pg_constraint.conname AS pk_name,\
-                pg_constraint.conkey AS pk_vector \
-                FROM pg_constraint \
-                INNER JOIN pg_class ON pg_constraint.conrelid = pg_class.oid \
-                WHERE \
-                pg_class.relname = $1 \
-                AND pg_constraint.contype = 'p'"
+    *client << "SELECT "
+               "pg_constraint.conname AS pk_name,"
+               "pg_constraint.conkey AS pk_vector "
+               "FROM pg_constraint "
+               "INNER JOIN pg_class ON pg_constraint.conrelid = pg_class.oid "
+               "WHERE "
+               "pg_class.relname = $1 "
+               "AND pg_constraint.contype = 'p'"
             << tableName << Mode::Blocking >>
         [&](bool isNull,
             const std::string &pkName,
@@ -308,16 +319,18 @@ void create_model::createModelClassFromPG(
     data["hasPrimaryKey"] = (int)pkNumber;
     if (pkNumber == 1)
     {
-        *client << "SELECT \
-                pg_attribute.attname AS colname,\
-                pg_type.typname AS typename,\
-                pg_constraint.contype AS contype \
-                FROM pg_constraint \
-                INNER JOIN pg_class ON pg_constraint.conrelid = pg_class.oid \
-                INNER JOIN pg_attribute ON pg_attribute.attrelid = pg_class.oid \
-                AND pg_attribute.attnum = pg_constraint.conkey [ 1 ] \
-                INNER JOIN pg_type ON pg_type.oid = pg_attribute.atttypid \
-                WHERE pg_class.relname = $1 and pg_constraint.contype='p'"
+        *client << "SELECT "
+                   "pg_attribute.attname AS colname,"
+                   "pg_type.typname AS typename,"
+                   "pg_constraint.contype AS contype "
+                   "FROM pg_constraint "
+                   "INNER JOIN pg_class ON pg_constraint.conrelid = "
+                   "pg_class.oid "
+                   "INNER JOIN pg_attribute ON pg_attribute.attrelid = "
+                   "pg_class.oid "
+                   "AND pg_attribute.attnum = pg_constraint.conkey [ 1 ] "
+                   "INNER JOIN pg_type ON pg_type.oid = pg_attribute.atttypid "
+                   "WHERE pg_class.relname = $1 and pg_constraint.contype='p'"
                 << tableName << Mode::Blocking >>
             [&](bool isNull,
                 const std::string &colName,
@@ -345,16 +358,20 @@ void create_model::createModelClassFromPG(
         std::vector<std::string> pkNames, pkTypes, pkValNames;
         for (size_t i = 1; i <= pkNumber; ++i)
         {
-            *client << "SELECT \
-                pg_attribute.attname AS colname,\
-                pg_type.typname AS typename,\
-                pg_constraint.contype AS contype \
-                FROM pg_constraint \
-                INNER JOIN pg_class ON pg_constraint.conrelid = pg_class.oid \
-                INNER JOIN pg_attribute ON pg_attribute.attrelid = pg_class.oid \
-                AND pg_attribute.attnum = pg_constraint.conkey [ $1 ] \
-                INNER JOIN pg_type ON pg_type.oid = pg_attribute.atttypid \
-                WHERE pg_class.relname = $2 and pg_constraint.contype='p'"
+            *client << "SELECT "
+                       "pg_attribute.attname AS colname,"
+                       "pg_type.typname AS typename,"
+                       "pg_constraint.contype AS contype "
+                       "FROM pg_constraint "
+                       "INNER JOIN pg_class ON pg_constraint.conrelid = "
+                       "pg_class.oid "
+                       "INNER JOIN pg_attribute ON pg_attribute.attrelid = "
+                       "pg_class.oid "
+                       "AND pg_attribute.attnum = pg_constraint.conkey [ $1 ] "
+                       "INNER JOIN pg_type ON pg_type.oid = "
+                       "pg_attribute.atttypid "
+                       "WHERE pg_class.relname = $2 and "
+                       "pg_constraint.contype='p'"
                     << (int)i << tableName << Mode::Blocking >>
                 [&](bool isNull, std::string colName, const std::string &type) {
                     if (isNull)
@@ -454,7 +471,7 @@ void create_model::createModelClassFromMysql(
     data["convertMethods"] = convertMethods;
     std::vector<ColumnInfo> cols;
     int i = 0;
-    *client << "desc " + tableName << Mode::Blocking >>
+    *client << "desc `" + tableName + "`" << Mode::Blocking >>
         [&i, &cols](bool isNull,
                     const std::string &field,
                     const std::string &type,
@@ -693,7 +710,7 @@ void create_model::createModelClassFromSqlite3(
 
             if (type.find("int") != std::string::npos)
             {
-                info.colType_ = "uint64_t";
+                info.colType_ = "int64_t";
                 info.colLength_ = 8;
             }
             else if (type.find("char") != std::string::npos || type == "text" ||

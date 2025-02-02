@@ -158,17 +158,13 @@ static void loadLogSetting(const Json::Value &log)
 {
     if (!log)
         return;
+    auto useSpdlog = log.get("use_spdlog", false).asBool();
     auto logPath = log.get("log_path", "").asString();
-    if (!logPath.empty())
-    {
-        auto baseName = log.get("logfile_base_name", "").asString();
-        auto logSize = log.get("log_size_limit", 100000000).asUInt64();
-        auto maxFiles = log.get("max_files", 0).asUInt();
-        HttpAppFrameworkImpl::instance().setLogPath(logPath,
-                                                    baseName,
-                                                    logSize,
-                                                    maxFiles);
-    }
+    auto baseName = log.get("logfile_base_name", "").asString();
+    auto logSize = log.get("log_size_limit", 100000000).asUInt64();
+    auto maxFiles = log.get("max_files", 0).asUInt();
+    HttpAppFrameworkImpl::instance().setLogPath(
+        logPath, baseName, logSize, maxFiles, useSpdlog);
     auto logLevel = log.get("log_level", "DEBUG").asString();
     if (logLevel == "TRACE")
     {
@@ -218,7 +214,7 @@ static void loadControllers(const Json::Value &controllers)
                 {
                     constraints.push_back(Post);
                 }
-                else if (strMethod == "head")  // The branch nerver work
+                else if (strMethod == "head")  // The branch never work
                 {
                     constraints.push_back(Head);
                 }
@@ -268,11 +264,17 @@ static void loadApp(const Json::Value &app)
     drogon::app().setThreadNum(threadsNum);
     // session
     auto enableSession = app.get("enable_session", false).asBool();
-    auto timeout = app.get("session_timeout", 0).asUInt64();
-    auto sameSite = app.get("session_same_site", "Null").asString();
     if (enableSession)
+    {
+        auto timeout = app.get("session_timeout", 0).asUInt64();
+        auto sameSite = app.get("session_same_site", "Null").asString();
+        auto cookieKey = app.get("session_cookie_key", "JSESSIONID").asString();
+        auto maxAge = app.get("session_max_age", -1).asInt();
         drogon::app().enableSession(timeout,
-                                    Cookie::convertString2SameSite(sameSite));
+                                    Cookie::convertString2SameSite(sameSite),
+                                    cookieKey,
+                                    maxAge);
+    }
     else
         drogon::app().disableSession();
     // document root
@@ -288,8 +290,9 @@ static void loadApp(const Json::Value &app)
             std::vector<std::pair<std::string, std::string>> headers;
             for (auto &header : app["static_file_headers"])
             {
-                headers.emplace_back(std::make_pair<std::string, std::string>(
-                    header["name"].asString(), header["value"].asString()));
+                headers.emplace_back(
+                    std::make_pair(header["name"].asString(),
+                                   header["value"].asString()));
             }
             drogon::app().setStaticFileHeaders(headers);
         }
@@ -521,6 +524,9 @@ static void loadApp(const Json::Value &app)
     bool enableCompressedRequests =
         app.get("enabled_compressed_request", false).asBool();
     drogon::app().enableCompressedRequest(enableCompressedRequests);
+
+    drogon::app().enableRequestStream(
+        app.get("enable_request_stream", false).asBool());
 }
 
 static void loadDbClients(const Json::Value &dbClients)
@@ -535,9 +541,9 @@ static void loadDbClients(const Json::Value &dbClients)
                        type.begin(),
                        [](unsigned char c) { return tolower(c); });
         auto host = client.get("host", "127.0.0.1").asString();
-        auto port = client.get("port", 5432).asUInt();
+        unsigned short port = client.get("port", 5432).asUInt();
         auto dbname = client.get("dbname", "").asString();
-        if (dbname == "" && type != "sqlite3")
+        if (dbname.empty() && type != "sqlite3")
         {
             throw std::runtime_error(
                 "Please configure dbname in the configuration file");
@@ -561,21 +567,33 @@ static void loadDbClients(const Json::Value &dbClients)
         {
             characterSet = client.get("client_encoding", "").asString();
         }
+        auto connectOptions = client.get("connect_options", Json::Value());
         auto timeout = client.get("timeout", -1.0).asDouble();
         auto autoBatch = client.get("auto_batch", false).asBool();
-        drogon::app().createDbClient(type,
-                                     host,
-                                     (unsigned short)port,
-                                     dbname,
-                                     user,
-                                     password,
-                                     connNum,
-                                     filename,
-                                     name,
-                                     isFast,
-                                     characterSet,
-                                     timeout,
-                                     autoBatch);
+
+        std::unordered_map<std::string, std::string> options;
+        if (connectOptions.isObject() && !connectOptions.empty())
+        {
+            for (const auto &key : connectOptions.getMemberNames())
+            {
+                options[key] = connectOptions[key].asString();
+            }
+        }
+
+        HttpAppFrameworkImpl::instance().addDbClient(type,
+                                                     host,
+                                                     port,
+                                                     dbname,
+                                                     user,
+                                                     password,
+                                                     connNum,
+                                                     filename,
+                                                     name,
+                                                     isFast,
+                                                     characterSet,
+                                                     timeout,
+                                                     autoBatch,
+                                                     std::move(options));
     }
 }
 

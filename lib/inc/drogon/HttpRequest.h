@@ -30,6 +30,7 @@
 #include <unordered_map>
 #include <optional>
 #include <string_view>
+#include <trantor/net/TcpConnection.h>
 
 namespace drogon
 {
@@ -136,7 +137,7 @@ class DROGON_EXPORT HttpRequest
     /// Get the header string identified by the key parameter.
     /**
      * @note
-     * If there is no the header, a empty string is retured.
+     * If there is no the header, a empty string is returned.
      * The key is case insensitive
      */
     virtual const std::string &getHeader(std::string key) const = 0;
@@ -162,29 +163,32 @@ class DROGON_EXPORT HttpRequest
     virtual const std::string &getCookie(const std::string &field) const = 0;
 
     /// Get all headers of the request
-    virtual const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &headers() const = 0;
+    virtual const SafeStringMap<std::string> &headers() const = 0;
 
     /// Get all headers of the request
-    const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &getHeaders() const
+    const SafeStringMap<std::string> &getHeaders() const
     {
         return headers();
     }
 
     /// Get all cookies of the request
-    virtual const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &cookies() const = 0;
+    virtual const SafeStringMap<std::string> &cookies() const = 0;
 
     /// Get all cookies of the request
-    const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &getCookies() const
+    const SafeStringMap<std::string> &getCookies() const
     {
         return cookies();
+    }
+
+    /**
+     * @brief Return content length parsed from the Content-Length header
+     * If no Content-Length header, return null.
+     */
+    virtual size_t realContentLength() const = 0;
+
+    size_t getRealContentLength() const
+    {
+        return realContentLength();
     }
 
     /// Get the query string of the request.
@@ -269,7 +273,7 @@ class DROGON_EXPORT HttpRequest
     /// Return the enum type version of the request.
     /**
      * kHttp10 means Http version is 1.0
-     * kHttp11 means Http verison is 1.1
+     * kHttp11 means Http version is 1.1
      */
     virtual Version version() const = 0;
 
@@ -300,14 +304,10 @@ class DROGON_EXPORT HttpRequest
     }
 
     /// Get parameters of the request.
-    virtual const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &parameters() const = 0;
+    virtual const SafeStringMap<std::string> &parameters() const = 0;
 
     /// Get parameters of the request.
-    const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &getParameters() const
+    const SafeStringMap<std::string> &getParameters() const
     {
         return parameters();
     }
@@ -316,7 +316,7 @@ class DROGON_EXPORT HttpRequest
     virtual const std::string &getParameter(const std::string &key) const = 0;
 
     /**
-     * @brief Get the optional parameter identified by the @param key. if the
+     * @brief Get the optional parameter identified by the @p key. if the
      * parameter doesn't exist, or the original parameter can't be converted to
      * a T type object, an empty optional object is returned.
      *
@@ -450,13 +450,12 @@ class DROGON_EXPORT HttpRequest
     virtual void setCustomContentTypeString(const std::string &type) = 0;
 
     /// Add a cookie
-    virtual void addCookie(const std::string &key,
-                           const std::string &value) = 0;
+    virtual void addCookie(std::string key, std::string value) = 0;
 
     /**
      * @brief Set the request object to the pass-through mode or not. It's not
      * by default when a new request object is created.
-     * In pass-through mode, no addtional headers (including user-agent,
+     * In pass-through mode, no additional headers (including user-agent,
      * connection, etc.) are added to the request. This mode is useful for some
      * applications such as a proxy.
      *
@@ -505,6 +504,11 @@ class DROGON_EXPORT HttpRequest
     virtual bool isOnSecureConnection() const noexcept = 0;
     virtual void setContentTypeString(const char *typeString,
                                       size_t typeStringLength) = 0;
+
+    virtual bool connected() const noexcept = 0;
+
+    virtual const std::weak_ptr<trantor::TcpConnection> &getConnectionPtr()
+        const noexcept = 0;
 
     virtual ~HttpRequest()
     {

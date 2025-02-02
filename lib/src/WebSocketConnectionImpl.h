@@ -16,6 +16,8 @@
 
 #include "impl_forwards.h"
 #include <drogon/WebSocketConnection.h>
+#include <json/value.h>
+#include <string_view>
 #include <trantor/utils/NonCopyable.h>
 #include <trantor/net/TcpConnection.h>
 
@@ -60,7 +62,10 @@ class WebSocketConnectionImpl final
         uint64_t len,
         const WebSocketMessageType type = WebSocketMessageType::Text) override;
     void send(
-        const std::string &msg,
+        std::string_view msg,
+        const WebSocketMessageType type = WebSocketMessageType::Text) override;
+    void sendJson(
+        const Json::Value &json,
         const WebSocketMessageType type = WebSocketMessageType::Text) override;
 
     const trantor::InetAddress &localAddr() const override;

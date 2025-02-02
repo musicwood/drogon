@@ -76,7 +76,7 @@ class DROGON_EXPORT Result
     using ConstReverseIterator = ConstReverseResultIterator;
     using ReverseIterator = ConstReverseIterator;
 
-    // C++ type type defination compatibility
+    // C++ type type definition compatibility
     using value_type = Row;
     using size_type = SizeType;
     using difference_type = DifferenceType;
@@ -140,7 +140,7 @@ class DROGON_EXPORT Result
     unsigned long long insertId() const noexcept;
 
 #ifdef _MSC_VER
-    Result() = default;
+    Result() noexcept = default;
 #endif
 
   private:

@@ -37,7 +37,7 @@ class DROGON_EXPORT HttpViewData
     template <typename T>
     const T &get(const std::string &key) const
     {
-        const static T nullVal = T();
+        static const T nullVal = T();
         auto it = viewData_.find(key);
         if (it != viewData_.end())
         {
@@ -74,7 +74,7 @@ class DROGON_EXPORT HttpViewData
         viewData_[key] = ss.str();
     }
 
-    /// Insert a formated string identified by the key parameter.
+    /// Insert a formatted string identified by the key parameter.
     void insertFormattedString(const std::string &key, const char *format, ...)
     {
         std::string strBuffer;

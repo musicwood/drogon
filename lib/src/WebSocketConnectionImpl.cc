@@ -14,6 +14,8 @@
 
 #include "WebSocketConnectionImpl.h"
 #include "HttpAppFrameworkImpl.h"
+#include <json/value.h>
+#include <json/writer.h>
 #include <thread>
 
 using namespace drogon;
@@ -88,7 +90,7 @@ void WebSocketConnectionImpl::sendWsData(const char *msg,
     {
         bytesFormatted[1] = 126;
         bytesFormatted[2] = ((len >> 8) & 255);
-        bytesFormatted[3] = ((len)&255);
+        bytesFormatted[3] = ((len) & 255);
         LOG_TRACE << "bytes[2]=" << (size_t)bytesFormatted[2];
         LOG_TRACE << "bytes[3]=" << (size_t)bytesFormatted[3];
         indexStartRawData = 4;
@@ -103,7 +105,7 @@ void WebSocketConnectionImpl::sendWsData(const char *msg,
         bytesFormatted[6] = ((len >> 24) & 255);
         bytesFormatted[7] = ((len >> 16) & 255);
         bytesFormatted[8] = ((len >> 8) & 255);
-        bytesFormatted[9] = ((len)&255);
+        bytesFormatted[9] = ((len) & 255);
 
         indexStartRawData = 10;
     }
@@ -159,9 +161,32 @@ void WebSocketConnectionImpl::sendWsData(const char *msg,
     tcpConnectionPtr_->send(std::move(bytesFormatted));
 }
 
-void WebSocketConnectionImpl::send(const std::string &msg,
+void WebSocketConnectionImpl::send(const std::string_view msg,
                                    const WebSocketMessageType type)
 {
+    send(msg.data(), msg.length(), type);
+}
+
+void WebSocketConnectionImpl::sendJson(const Json::Value &json,
+                                       const WebSocketMessageType type)
+{
+    static std::once_flag once;
+    static Json::StreamWriterBuilder builder;
+    std::call_once(once, []() {
+        builder["commentStyle"] = "None";
+        builder["indentation"] = "";
+        if (!app().isUnicodeEscapingUsedInJson())
+        {
+            builder["emitUTF8"] = true;
+        }
+        auto &precision = app().getFloatPrecisionInJson();
+        if (precision.first != 0)
+        {
+            builder["precision"] = precision.first;
+            builder["precisionType"] = precision.second;
+        }
+    });
+    auto msg = writeString(builder, json);
     send(msg.data(), msg.length(), type);
 }
 

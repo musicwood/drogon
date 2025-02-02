@@ -25,10 +25,7 @@ class A : public DrObjectBase
     {
         HttpViewData data;
         data.insert("title", std::string("ApiTest::get"));
-        std::unordered_map<std::string,
-                           std::string,
-                           utils::internal::SafeStringHash>
-            para;
+        SafeStringMap<std::string> para;
         para["int p1"] = std::to_string(p1);
         para["string p2"] = p2;
         para["string p3"] = p3;
@@ -49,10 +46,7 @@ class A : public DrObjectBase
     {
         HttpViewData data;
         data.insert("title", std::string("ApiTest::get"));
-        std::unordered_map<std::string,
-                           std::string,
-                           utils::internal::SafeStringHash>
-            para;
+        SafeStringMap<std::string> para;
         para["int p1"] = std::to_string(p1);
         para["string p2"] = p2;
         para["string p3"] = p3;
@@ -74,10 +68,7 @@ class B : public DrObjectBase
     {
         HttpViewData data;
         data.insert("title", std::string("ApiTest::get"));
-        std::unordered_map<std::string,
-                           std::string,
-                           utils::internal::SafeStringHash>
-            para;
+        SafeStringMap<std::string> para;
         para["p1"] = std::to_string(p1);
         para["p2"] = std::to_string(p2);
         data.insert("parameters", para);
@@ -125,10 +116,7 @@ class Test : public HttpController<Test>
     {
         HttpViewData data;
         data.insert("title", std::string("ApiTest::get"));
-        std::unordered_map<std::string,
-                           std::string,
-                           utils::internal::SafeStringHash>
-            para;
+        SafeStringMap<std::string> para;
         para["p1"] = std::to_string(p1);
         para["p2"] = std::to_string(p2);
         data.insert("parameters", para);
@@ -143,10 +131,7 @@ class Test : public HttpController<Test>
     {
         HttpViewData data;
         data.insert("title", std::string("ApiTest::get"));
-        std::unordered_map<std::string,
-                           std::string,
-                           utils::internal::SafeStringHash>
-            para;
+        SafeStringMap<std::string> para;
         para["p1"] = std::to_string(p1);
         para["p2"] = std::to_string(p2);
         data.insert("parameters", para);
@@ -168,6 +153,30 @@ std::string_view fromRequest(const HttpRequest &req)
     return req.body();
 }
 }  // namespace drogon
+
+class Middleware4 : public drogon::HttpMiddleware<Middleware4, false>
+{
+  public:
+    Middleware4()
+    {
+        LOG_DEBUG << "Middleware4\n";
+    };
+
+    void invoke(const HttpRequestPtr &req,
+                MiddlewareNextCallback &&nextCb,
+                MiddlewareCallback &&mcb) override
+    {
+        auto ptr = req->attributes()->get<std::shared_ptr<std::string>>(
+            "test-middleware");
+        ptr->append("4");
+
+        nextCb([req, ptr, mcb = std::move(mcb)](const HttpResponsePtr &resp) {
+            ptr->append("4");
+            resp->setBody(*ptr);
+            mcb(resp);
+        });
+    }
+};
 
 /// Some examples in the main function show some common functions of drogon. In
 /// practice, we don't need such a lengthy main function.
@@ -205,10 +214,7 @@ int main()
         ) {
             HttpViewData data;
             data.insert("title", std::string("ApiTest::get"));
-            std::unordered_map<std::string,
-                               std::string,
-                               utils::internal::SafeStringHash>
-                para;
+            SafeStringMap<std::string> para;
             para["a"] = std::to_string(a);
             para["b"] = std::to_string(b);
             data.insert("parameters", para);
@@ -285,6 +291,10 @@ int main()
         std::make_shared<CustomHeaderFilter>("custom_header", "yes");
     app().registerFilter(filterPtr);
     app().setIdleConnectionTimeout(30s);
+
+    // Install custom Middleware
+    auto middlewarePtr = std::make_shared<Middleware4>();
+    app().registerMiddleware(middlewarePtr);
 
     // AOP example
     app().registerBeginningAdvice(
@@ -398,8 +408,7 @@ int main()
     app().registerCustomExtensionMime("md", "text/markdown");
     app().setFileTypes({"md", "html", "jpg", "cc", "txt"});
     std::cout << "Date: "
-              << std::string{drogon::utils::getHttpFullDate(
-                     trantor::Date::now())}
+              << drogon::utils::getHttpFullDateStr(trantor::Date::now())
               << std::endl;
 
     app().registerBeginningAdvice(

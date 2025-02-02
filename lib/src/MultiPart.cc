@@ -45,15 +45,23 @@ std::unordered_map<std::string, HttpFile> MultiPartParser::getFilesMap() const
     return result;
 }
 
-const std::map<std::string, std::string> &MultiPartParser::getParameters() const
+const SafeStringMap<std::string> &MultiPartParser::getParameters() const
 {
     return parameters_;
 }
 
 int MultiPartParser::parse(const HttpRequestPtr &req)
 {
-    if (req->method() != Post && req->method() != Put)
-        return -1;
+    switch (req->method())
+    {
+        case Post:
+        case Put:
+        case Patch:
+            break;
+        default:
+            return -1;
+    }
+
     const std::string &contentType =
         static_cast<HttpRequestImpl *>(req.get())->getHeaderBy("content-type");
     if (contentType.empty())
@@ -104,7 +112,9 @@ static std::pair<std::string_view, std::string_view> parseLine(
     return std::make_pair(std::string_view(), std::string_view());
 }
 
-int MultiPartParser::parseEntity(const char *begin, const char *end)
+int MultiPartParser::parseEntity(const HttpRequestPtr &req,
+                                 const char *begin,
+                                 const char *end)
 {
     static const char entityName[] = "name=";
     static const char fileName[] = "filename=";
@@ -174,7 +184,7 @@ int MultiPartParser::parseEntity(const char *begin, const char *end)
                     fileNameEnd = std::find(fileNamePos, valueEnd, ';');
                 }
                 std::string fName{fileNamePos, fileNameEnd};
-                filePtr->setRequest(requestPtr_);
+                filePtr->setRequest(req);
                 filePtr->setItemName(std::move(name));
                 filePtr->setFileName(std::move(fName));
                 filePtr->setFile(headEnd + 2,
@@ -218,7 +228,6 @@ int MultiPartParser::parse(const HttpRequestPtr &req,
     std::string_view boundary{boundaryData, boundaryLen};
     if (boundary.size() > 2 && boundary[0] == '\"')
         boundary = boundary.substr(1, boundary.size() - 2);
-    requestPtr_ = req;
     std::string_view::size_type pos1, pos2;
     pos1 = 0;
     auto content = static_cast<HttpRequestImpl *>(req.get())->bodyView();
@@ -241,7 +250,7 @@ int MultiPartParser::parse(const HttpRequestPtr &req,
             pos2 -= 4;
             flag = true;
         }
-        if (parseEntity(content.data() + pos1, content.data() + pos2) != 0)
+        if (parseEntity(req, content.data() + pos1, content.data() + pos2) != 0)
             return -1;
         if (flag)
             pos2 += 4;

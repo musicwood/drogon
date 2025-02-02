@@ -39,7 +39,7 @@ class Attributes
     template <typename T>
     const T &get(const std::string &key) const
     {
-        const static T nullVal = T();
+        static const T nullVal = T();
         auto it = attributesMap_.find(key);
         if (it != attributesMap_.end())
         {
@@ -96,7 +96,7 @@ class Attributes
     }
 
     /**
-     * @brief Retrun true if the data identified by the key exists.
+     * @brief Return true if the data identified by the key exists.
      */
     bool find(const std::string &key)
     {

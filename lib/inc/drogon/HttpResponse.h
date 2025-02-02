@@ -15,8 +15,11 @@
 
 #include <drogon/exports.h>
 #include <trantor/net/Certificate.h>
+#include <trantor/net/callbacks.h>
+#include <trantor/net/AsyncStream.h>
 #include <drogon/DrClassMap.h>
 #include <drogon/Cookie.h>
+#include <drogon/HttpRequest.h>
 #include <drogon/HttpTypes.h>
 #include <drogon/HttpViewData.h>
 #include <drogon/utils/Utilities.h>
@@ -67,6 +70,48 @@ inline HttpResponsePtr toResponse<Json::Value &>(Json::Value &pJson)
 {
     return toResponse((const Json::Value &)pJson);
 }
+
+class DROGON_EXPORT ResponseStream
+{
+  public:
+    explicit ResponseStream(trantor::AsyncStreamPtr asyncStream)
+        : asyncStream_(std::move(asyncStream))
+    {
+    }
+
+    ~ResponseStream()
+    {
+        close();
+    }
+
+    bool send(const std::string &data)
+    {
+        if (!asyncStream_)
+        {
+            return false;
+        }
+        std::ostringstream oss;
+        oss << std::hex << data.length() << "\r\n";
+        oss << data << "\r\n";
+        return asyncStream_->send(oss.str());
+    }
+
+    void close()
+    {
+        if (asyncStream_)
+        {
+            static std::string closeStream{"0\r\n\r\n"};
+            asyncStream_->send(closeStream);
+            asyncStream_->close();
+            asyncStream_.reset();
+        }
+    }
+
+  private:
+    trantor::AsyncStreamPtr asyncStream_;
+};
+
+using ResponseStreamPtr = std::unique_ptr<ResponseStream>;
 
 class DROGON_EXPORT HttpResponse
 {
@@ -171,7 +216,7 @@ class DROGON_EXPORT HttpResponse
         setContentTypeCodeAndCustomString(type, typeString, N - 1);
     }
 
-    /// Set the reponse content type and the character set.
+    /// Set the response content type and the character set.
     /// virtual void setContentTypeCodeAndCharacterSet(ContentType type, const
     /// std::string &charSet = "utf-8") = 0;
 
@@ -186,7 +231,7 @@ class DROGON_EXPORT HttpResponse
     /// Get the header string identified by the key parameter.
     /**
      * @note
-     * If there is no the header, a empty string is retured.
+     * If there is no the header, a empty string is returned.
      * The key is case insensitive
      */
     virtual const std::string &getHeader(std::string key) const = 0;
@@ -199,14 +244,10 @@ class DROGON_EXPORT HttpResponse
     virtual void removeHeader(std::string key) = 0;
 
     /// Get all headers of the response
-    virtual const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &headers() const = 0;
+    virtual const SafeStringMap<std::string> &headers() const = 0;
 
     /// Get all headers of the response
-    const std::
-        unordered_map<std::string, std::string, utils::internal::SafeStringHash>
-            &getHeaders() const
+    const SafeStringMap<std::string> &getHeaders() const
     {
         return headers();
     }
@@ -230,18 +271,14 @@ class DROGON_EXPORT HttpResponse
     virtual void addCookie(Cookie &&cookie) = 0;
 
     /// Get the cookie identified by the key parameter.
-    /// If there is no the cookie, the empty cookie is retured.
+    /// If there is no the cookie, the empty cookie is returned.
     virtual const Cookie &getCookie(const std::string &key) const = 0;
 
     /// Get all cookies.
-    virtual const std::
-        unordered_map<std::string, Cookie, utils::internal::SafeStringHash>
-            &cookies() const = 0;
+    virtual const SafeStringMap<Cookie> &cookies() const = 0;
 
     /// Get all cookies.
-    const std::
-        unordered_map<std::string, Cookie, utils::internal::SafeStringHash>
-            &getCookies() const
+    const SafeStringMap<Cookie> &getCookies() const
     {
         return cookies();
     }
@@ -290,7 +327,7 @@ class DROGON_EXPORT HttpResponse
     /// Return the enum type version of the response.
     /**
      * kHttp10 means Http version is 1.0
-     * kHttp11 means Http verison is 1.1
+     * kHttp11 means Http version is 1.1
      */
     virtual Version version() const = 0;
 
@@ -300,7 +337,7 @@ class DROGON_EXPORT HttpResponse
         return version();
     }
 
-    /// Reset the reponse object to its initial state
+    /// Reset the response object to its initial state
     virtual void clear() = 0;
 
     /// Set the expiration time of the response cache in memory.
@@ -318,7 +355,7 @@ class DROGON_EXPORT HttpResponse
 
     /// Get the json object from the server response.
     /// If the response is not in json format, then a empty shared_ptr is
-    /// retured.
+    /// returned.
     virtual const std::shared_ptr<Json::Value> &jsonObject() const = 0;
 
     const std::shared_ptr<Json::Value> &getJsonObject() const
@@ -337,9 +374,9 @@ class DROGON_EXPORT HttpResponse
     virtual const std::string &getJsonError() const = 0;
 
     /**
-     * @brief Set the reponse object to the pass-through mode or not. It's not
+     * @brief Set the response object to the pass-through mode or not. It's not
      * by default when a new response object is created.
-     * In pass-through mode, no addtional headers (including server, date,
+     * In pass-through mode, no additional headers (including server, date,
      * content-type and content-length, etc.) are added to the response. This
      * mode is useful for some applications such as a proxy.
      *
@@ -368,7 +405,8 @@ class DROGON_EXPORT HttpResponse
     static HttpResponsePtr newHttpResponse(HttpStatusCode code,
                                            ContentType type);
     /// Create a response which returns a 404 page.
-    static HttpResponsePtr newNotFoundResponse();
+    static HttpResponsePtr newNotFoundResponse(
+        const HttpRequestPtr &req = HttpRequestPtr());
     /// Create a response which returns a json object. Its content-type is set
     /// to application/json.
     static HttpResponsePtr newHttpJsonResponse(const Json::Value &data);
@@ -384,7 +422,8 @@ class DROGON_EXPORT HttpResponse
      */
     static HttpResponsePtr newHttpViewResponse(
         const std::string &viewName,
-        const HttpViewData &data = HttpViewData());
+        const HttpViewData &data = HttpViewData(),
+        const HttpRequestPtr &req = HttpRequestPtr());
 
     /// Create a response that returns a redirection page, redirecting to
     /// another page located in the location parameter.
@@ -411,7 +450,8 @@ class DROGON_EXPORT HttpResponse
         const std::string &fullPath,
         const std::string &attachmentFileName = "",
         ContentType type = CT_NONE,
-        const std::string &typeString = "");
+        const std::string &typeString = "",
+        const HttpRequestPtr &req = HttpRequestPtr());
 
     /// Create a response that returns part of a file to the client.
     /**
@@ -437,7 +477,8 @@ class DROGON_EXPORT HttpResponse
         bool setContentRange = true,
         const std::string &attachmentFileName = "",
         ContentType type = CT_NONE,
-        const std::string &typeString = "");
+        const std::string &typeString = "",
+        const HttpRequestPtr &req = HttpRequestPtr());
 
     /// Create a response that returns a file to the client from buffer in
     /// memory/stack
@@ -463,23 +504,43 @@ class DROGON_EXPORT HttpResponse
     /**
      * @note if the Connection is keep-alive and the Content-Length header is
      * not set, the stream data is sent with Transfer-Encoding: chunked.
-     * @param function to retrieve the stream data (stream ends when a zero size
-     * is returned) the callback will be called with nullptr when the send is
-     * finished/interruped so that it cleans up its internals.
+     * @param callback function to retrieve the stream data (stream ends when a
+     *                 zero size is returned) the callback will be called with
+     *                 nullptr when the send is finished/interrupted so that it
+     *                 cleans up its internals.
      * @param attachmentFileName if the parameter is not empty, the browser
      *                           does not open the file, but saves it as an
-     * attachment.
+     *                           attachment.
      * @param type the content type code. If the parameter is CT_NONE, the
      *             content type is set by drogon based on the file extension and
-     * typeString. Set it to CT_CUSTOM when no drogon internal content type
-     * matches.
+     *             typeString. Set it to CT_CUSTOM when no drogon internal
+     *             content type matches.
      * @param typeString the MIME string of the content type.
      */
     static HttpResponsePtr newStreamResponse(
         const std::function<std::size_t(char *, std::size_t)> &callback,
         const std::string &attachmentFileName = "",
         ContentType type = CT_NONE,
-        const std::string &typeString = "");
+        const std::string &typeString = "",
+        const HttpRequestPtr &req = HttpRequestPtr());
+
+    /// Create a response that allows sending asynchronous data from a callback
+    /// function
+    /**
+     * @note Async streams are always sent with Transfer-Encoding: chunked.
+     * @param callback function that receives the asynchronous HTTP stream. You
+     *                 may call the stream->send() method to transmit new data.
+     *                 The send method will return true as long as the stream is
+     *                 still open. Once you have finished sending data, or the
+     *                 stream->send() function returned false, you should call
+     *                 stream->close() to gracefully close the chunked transfer.
+     * @param disableKickoffTimeout set this to true to disable trantors default
+     *                              kickoff timeout. This is useful if you need
+     *                              long running asynchronous streams.
+     */
+    static HttpResponsePtr newAsyncStreamResponse(
+        const std::function<void(ResponseStreamPtr)> &callback,
+        bool disableKickoffTimeout = false);
 
     /**
      * @brief Create a custom HTTP response object. For using this template,
@@ -500,7 +561,7 @@ class DROGON_EXPORT HttpResponse
 
     /**
      * @brief Returns the range of the file response as a pair ot size_t
-     * (offset, length). Length of 0 means the entire file is sent. Behaivor of
+     * (offset, length). Length of 0 means the entire file is sent. Behavior of
      * this function is undefined if the response if not a file response
      */
     using SendfileRange = std::pair<size_t, size_t>;  // { offset, length }
@@ -511,8 +572,15 @@ class DROGON_EXPORT HttpResponse
      * newStreamResponse) returns the callback function. Otherwise a
      * null function.
      */
-    virtual const std::function<std::size_t(char *, std::size_t)>
-        &streamCallback() const = 0;
+    virtual const std::function<std::size_t(char *, std::size_t)> &
+    streamCallback() const = 0;
+
+    /**
+     * @brief If the response is a async stream response (i.e. created by
+     * asyncStreamCallback) returns the stream ptr.
+     */
+    virtual const std::function<void(ResponseStreamPtr)> &asyncStreamCallback()
+        const = 0;
 
     /**
      * @brief Returns the content type associated with the response
